@@ -31,6 +31,7 @@ const s3Client = new client_s3_1.S3Client({
     region: "us-east-1"
 });
 const DEFAULT_TITLE = "default title";
+const TOTAL_DECIMAL = 1000000000;
 router.post('/signin', (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const hardcodedWalletAddress = "92ix902i3908x1u";
@@ -93,13 +94,17 @@ router.post('/task', middleware_1.authMiddleware, (req, res) => __awaiter(void 0
                 msg: "Wrong input!"
             });
         }
+        const amount = 1 * TOTAL_DECIMAL;
+        if (isNaN(amount)) {
+            throw new Error("Invalid TOTAL_DECIMAL value");
+        }
         //@ts-ignore
         let response = yield prisma.$transaction((tx) => __awaiter(void 0, void 0, void 0, function* () {
             var _a;
             const res = yield tx.task.create({
                 data: {
                     title: (_a = parseData.data.title) !== null && _a !== void 0 ? _a : DEFAULT_TITLE,
-                    amount: "1",
+                    amount,
                     signature: parseData.data.signature,
                     user_id: userId
                 }
@@ -114,6 +119,52 @@ router.post('/task', middleware_1.authMiddleware, (req, res) => __awaiter(void 0
         }));
         res.json({
             id: response.id
+        });
+    }
+    catch (e) {
+        console.log(e);
+    }
+}));
+router.get('/task', middleware_1.authMiddleware, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const taskId = req.query.taskId;
+        const userId = req.userId;
+        const taskDetails = yield prisma.task.findFirst({
+            where: {
+                user_id: Number(userId),
+                id: Number(taskId)
+            },
+            include: {
+                options: true
+            }
+        });
+        if (!taskDetails) {
+            return res.status(411).json({
+                msg: "You dont have access to this task"
+            });
+        }
+        const response = yield prisma.submission.findMany({
+            where: {
+                task_id: Number(taskId)
+            },
+            include: {
+                option: true
+            }
+        });
+        const result = {};
+        taskDetails.options.forEach(option => {
+            result[option.id] = {
+                count: 0,
+                option: {
+                    imageUrl: option.image_url || " "
+                }
+            };
+        });
+        response.forEach(r => {
+            result[r.option.id].count++;
+        });
+        res.json({
+            result
         });
     }
     catch (e) {

@@ -19,6 +19,7 @@ const s3Client = new S3Client({
     region: "us-east-1"
 })
 const DEFAULT_TITLE = "default title";
+const TOTAL_DECIMAL = 1000_000_000;
 
 router.post('/signin', async(req, res) => {
     try{
@@ -89,12 +90,17 @@ router.post('/task', authMiddleware, async(req: any, res: any) => {
             })
         }
 
+        const amount = 1 * TOTAL_DECIMAL;
+        if (isNaN(amount)) {
+            throw new Error("Invalid TOTAL_DECIMAL value");
+        }
+
         //@ts-ignore
         let response = await prisma.$transaction(async tx => {
             const res = await tx.task.create({
                 data: {
                     title: parseData.data.title ?? DEFAULT_TITLE,
-                    amount: "1",
+                    amount,
                     signature: parseData.data.signature,
                     user_id: userId
                 }
@@ -116,5 +122,61 @@ router.post('/task', authMiddleware, async(req: any, res: any) => {
     }
 })
 
+router.get('/task', authMiddleware, async(req: any, res:any) => {
+    try{
+        const taskId: string = req.query.taskId;
+        const userId = req.userId;
+        
+        const taskDetails = await prisma.task.findFirst({
+            where: {
+                user_id: Number(userId),
+                id: Number(taskId)
+            },
+            include: {
+                options: true
+            }
+        })
+
+        if(!taskDetails) {
+            return res.status(411).json({
+                msg: "You dont have access to this task"
+            })
+        }
+
+        const response = await prisma.submission.findMany({
+            where: {
+                task_id: Number(taskId)
+            },
+            include: {
+                option: true
+            }
+        })
+
+        const result: Record<string, {
+            count: number;
+            option: {
+                imageUrl: string
+            }
+        }> = {};
+
+        taskDetails.options.forEach(option => {
+            result[option.id] = {
+                count: 0,
+                option: {
+                    imageUrl: option.image_url || " "
+                }
+            }
+        })
+
+        response.forEach(r => {
+            result[r.option.id].count++;
+        })
+        res.json({
+            result
+        })
+    }catch(e) {
+        console.log(e)
+    }
+})
 
 module.exports = router;
