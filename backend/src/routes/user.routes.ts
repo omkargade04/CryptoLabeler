@@ -23,6 +23,17 @@ const s3Client = new S3Client({
 })
 const DEFAULT_TITLE = "default title";
 const TOTAL_DECIMAL = 1000_000_000;
+const connection = new Connection(process.env.RPC_URL ?? "");
+
+prisma.$transaction(
+    async (prisma) => {
+      // Code running in a transaction...
+    },
+    {
+      maxWait: 5000, // default: 2000
+      timeout: 10000, // default: 5000
+    }
+)
 
 router.post('/signin', async(req: any, res: any) => {
 
@@ -109,7 +120,37 @@ router.post('/task', authMiddleware, async(req: any, res: any) => {
             })
         }
 
-        const amount = 1 * TOTAL_DECIMAL;
+        const user = await prisma.user.findFirst({
+            where: {
+                id: userId
+            }
+        })
+
+        const transaction = await connection.getTransaction(parseData.data.signature, {
+            maxSupportedTransactionVersion: 1
+        });
+    
+        console.log(transaction);
+
+        if ((transaction?.meta?.postBalances[1] ?? 0) - (transaction?.meta?.preBalances[1] ?? 0) !== 100000000) {
+            return res.status(411).json({
+                message: "Transaction signature/amount incorrect"
+            })
+        }
+    
+        if (transaction?.transaction.message.getAccountKeys().get(1)?.toString() !== process.env.PARENT_WALLET_ADDRESS) {
+            return res.status(411).json({
+                message: "Transaction sent to wrong address"
+            })
+        }
+    
+        if (transaction?.transaction.message.getAccountKeys().get(0)?.toString() !== user?.address) {
+            return res.status(411).json({
+                message: "Transaction sent to wrong address"
+            })
+        }
+
+        const amount = 0.1 * TOTAL_DECIMAL;
         if (isNaN(amount)) {
             throw new Error("Invalid TOTAL_DECIMAL value");
         }
@@ -197,6 +238,7 @@ router.get('/task', authMiddleware, async(req: any, res:any) => {
         console.log(e)
     }
 })
+
 router.get('/leetcode', async (req, res) => {
     try {
         const response = await axios.post('https://leetcode.com/graphql', {

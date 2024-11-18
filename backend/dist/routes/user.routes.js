@@ -11,6 +11,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
+var _a;
 Object.defineProperty(exports, "__esModule", { value: true });
 const client_1 = require("@prisma/client");
 const express_1 = require("express");
@@ -35,6 +36,13 @@ const s3Client = new client_s3_1.S3Client({
 });
 const DEFAULT_TITLE = "default title";
 const TOTAL_DECIMAL = 1000000000;
+const connection = new web3_js_1.Connection((_a = process.env.RPC_URL) !== null && _a !== void 0 ? _a : "");
+prisma.$transaction((prisma) => __awaiter(void 0, void 0, void 0, function* () {
+    // Code running in a transaction...
+}), {
+    maxWait: 5000, // default: 2000
+    timeout: 10000, // default: 5000
+});
 router.post('/signin', (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     const { publicKey, signature } = req.body;
     const message = new TextEncoder().encode("Sign into cryptolabeler");
@@ -95,6 +103,7 @@ router.get("/presignedUrl", middleware_1.authMiddleware, (req, res) => __awaiter
     });
 }));
 router.post('/task', middleware_1.authMiddleware, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    var _b, _c, _d, _e, _f, _g;
     try {
         const userId = req.userId;
         const body = req.body;
@@ -104,16 +113,40 @@ router.post('/task', middleware_1.authMiddleware, (req, res) => __awaiter(void 0
                 msg: "Wrong input!"
             });
         }
-        const amount = 1 * TOTAL_DECIMAL;
+        const user = yield prisma.user.findFirst({
+            where: {
+                id: userId
+            }
+        });
+        const transaction = yield connection.getTransaction(parseData.data.signature, {
+            maxSupportedTransactionVersion: 1
+        });
+        console.log(transaction);
+        if (((_c = (_b = transaction === null || transaction === void 0 ? void 0 : transaction.meta) === null || _b === void 0 ? void 0 : _b.postBalances[1]) !== null && _c !== void 0 ? _c : 0) - ((_e = (_d = transaction === null || transaction === void 0 ? void 0 : transaction.meta) === null || _d === void 0 ? void 0 : _d.preBalances[1]) !== null && _e !== void 0 ? _e : 0) !== 100000000) {
+            return res.status(411).json({
+                message: "Transaction signature/amount incorrect"
+            });
+        }
+        if (((_f = transaction === null || transaction === void 0 ? void 0 : transaction.transaction.message.getAccountKeys().get(1)) === null || _f === void 0 ? void 0 : _f.toString()) !== process.env.PARENT_WALLET_ADDRESS) {
+            return res.status(411).json({
+                message: "Transaction sent to wrong address"
+            });
+        }
+        if (((_g = transaction === null || transaction === void 0 ? void 0 : transaction.transaction.message.getAccountKeys().get(0)) === null || _g === void 0 ? void 0 : _g.toString()) !== (user === null || user === void 0 ? void 0 : user.address)) {
+            return res.status(411).json({
+                message: "Transaction sent to wrong address"
+            });
+        }
+        const amount = 0.1 * TOTAL_DECIMAL;
         if (isNaN(amount)) {
             throw new Error("Invalid TOTAL_DECIMAL value");
         }
         //@ts-ignore
         let response = yield prisma.$transaction((tx) => __awaiter(void 0, void 0, void 0, function* () {
-            var _a;
+            var _h;
             const res = yield tx.task.create({
                 data: {
-                    title: (_a = parseData.data.title) !== null && _a !== void 0 ? _a : DEFAULT_TITLE,
+                    title: (_h = parseData.data.title) !== null && _h !== void 0 ? _h : DEFAULT_TITLE,
                     amount,
                     signature: parseData.data.signature,
                     user_id: userId
@@ -182,7 +215,7 @@ router.get('/task', middleware_1.authMiddleware, (req, res) => __awaiter(void 0,
     }
 }));
 router.get('/leetcode', (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    var _b, _c;
+    var _j, _k;
     try {
         const response = yield axios_1.default.post('https://leetcode.com/graphql', {
             query: `
@@ -204,9 +237,9 @@ router.get('/leetcode', (req, res) => __awaiter(void 0, void 0, void 0, function
     }
     catch (error) {
         const errorResponse = {
-            status: ((_b = error.response) === null || _b === void 0 ? void 0 : _b.status) || 500,
+            status: ((_j = error.response) === null || _j === void 0 ? void 0 : _j.status) || 500,
             message: error.message,
-            details: ((_c = error.response) === null || _c === void 0 ? void 0 : _c.data) || 'No additional details available'
+            details: ((_k = error.response) === null || _k === void 0 ? void 0 : _k.data) || 'No additional details available'
         };
         console.error('LeetCode API Error:', errorResponse);
         res.status(errorResponse.status).json(errorResponse);

@@ -1,20 +1,20 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 "use client";
-// import { PublicKey, SystemProgram, Transaction } from '@solana/web3.js';
+import { PublicKey, SystemProgram, Transaction } from '@solana/web3.js';
 import { UploadImage } from "@/components/UploadImage";
 import { BASE_URL } from "@/utils";
 import axios from "axios";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-// import { useWallet, useConnection } from '@solana/wallet-adapter-react';
+import { useWallet, useConnection } from '@solana/wallet-adapter-react';
 
 
 export const Upload = () => {
     const [images, setImages] = useState<string[]>([]);
     const [title, setTitle] = useState("");
     const [txSignature, setTxSignature] = useState("");
-    // const { publicKey, sendTransaction } = useWallet();
-    // const { connection } = useConnection();
+    const { publicKey, sendTransaction } = useWallet();
+    const { connection } = useConnection();
     const router = useRouter();
 
     async function onSubmit() {
@@ -35,23 +35,23 @@ export const Upload = () => {
 
     async function makePayment() {
 
-        // const transaction = new Transaction().add(
-        //     SystemProgram.transfer({
-        //         fromPubkey: publicKey!,
-        //         toPubkey: new PublicKey("2KeovpYvrgpziaDsq8nbNMP4mc48VNBVXb5arbqrg9Cq"),
-        //         lamports: 100000000,
-        //     })
-        // );
+        const transaction = new Transaction().add(
+            SystemProgram.transfer({
+                fromPubkey: publicKey!,
+                toPubkey: new PublicKey("2KeovpYvrgpziaDsq8nbNMP4mc48VNBVXb5arbqrg9Cq"),
+                lamports: 100000000,
+            })
+        );
 
-        // const {
-        //     context: { slot: minContextSlot },
-        //     value: { blockhash, lastValidBlockHeight }
-        // } = await connection.getLatestBlockhashAndContext();
+        const {
+            context: { slot: minContextSlot },
+            value: { blockhash, lastValidBlockHeight }
+        } = await connection.getLatestBlockhashAndContext();
 
-        // const signature = await sendTransaction(transaction, connection, { minContextSlot });
+        const signature = await sendTransaction(transaction, connection, { minContextSlot });
 
-        // await connection.confirmTransaction({ blockhash, lastValidBlockHeight, signature });
-        // setTxSignature(signature);
+        await connection.confirmTransaction({ blockhash, lastValidBlockHeight, signature });
+        setTxSignature(signature);
     }
 
     return <div className="flex justify-center">
@@ -86,9 +86,8 @@ export const Upload = () => {
         </div>
 
         <div className="flex justify-center">
-            <button onClick={onSubmit} type="button" className="mt-4 text-white bg-gray-800 hover:bg-gray-900 focus:outline-none focus:ring-4 focus:ring-gray-300 font-medium rounded-full text-sm px-5 py-2.5 me-2 mb-2 dark:bg-gray-800 dark:hover:bg-gray-700 dark:focus:ring-gray-700 dark:border-gray-700">
-                {/* {txSignature ? "Submit Task" : "Pay 0.1 SOL"} */}
-                Submit Task
+            <button onClick={txSignature ? onSubmit : makePayment} type="button" className="mt-4 text-white bg-gray-800 hover:bg-gray-900 focus:outline-none focus:ring-4 focus:ring-gray-300 font-medium rounded-full text-sm px-5 py-2.5 me-2 mb-2 dark:bg-gray-800 dark:hover:bg-gray-700 dark:focus:ring-gray-700 dark:border-gray-700">
+                {txSignature ? "Submit Task" : "Pay 0.1 SOL"}
             </button>
         </div>
         

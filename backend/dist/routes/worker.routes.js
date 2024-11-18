@@ -11,6 +11,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
+var _a;
 Object.defineProperty(exports, "__esModule", { value: true });
 const client_1 = require("@prisma/client");
 const express_1 = require("express");
@@ -19,16 +20,28 @@ const dotenv_1 = require("dotenv");
 const middleware_1 = require("../middleware");
 const db_1 = require("../db");
 const types_1 = require("../types");
+const web3_js_1 = require("@solana/web3.js");
+const bs58_1 = __importDefault(require("bs58"));
+const tweetnacl_1 = __importDefault(require("tweetnacl"));
+const connection = new web3_js_1.Connection((_a = process.env.RPC_URL) !== null && _a !== void 0 ? _a : "");
 (0, dotenv_1.config)();
 const router = (0, express_1.Router)();
 const prisma = new client_1.PrismaClient();
+const TOTAL_DECIMAL = 1000000000;
 const TOTAL_SUBMISSIONS = 100;
 router.post('/signin', (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const hardcodedWalletAddress = "92ix902i3908x1u";
+        const { publicKey, signature } = req.body;
+        const message = new TextEncoder().encode("Sign into cryptolabeler as a worker");
+        const result = tweetnacl_1.default.sign.detached.verify(message, new Uint8Array(signature.data), new web3_js_1.PublicKey(publicKey).toBytes());
+        if (!result) {
+            return res.status(411).json({
+                message: "Incorrect signature"
+            });
+        }
         const existingUser = yield prisma.worker.findFirst({
             where: {
-                address: hardcodedWalletAddress
+                address: publicKey
             }
         });
         if (existingUser) {
@@ -36,13 +49,14 @@ router.post('/signin', (req, res) => __awaiter(void 0, void 0, void 0, function*
                 userId: existingUser.id
             }, process.env.WORKER_JWT_SECRET || "");
             res.json({
-                token
+                token,
+                amount: existingUser.pending_amount / TOTAL_DECIMAL
             });
         }
         else {
             const user = yield prisma.worker.create({
                 data: {
-                    address: hardcodedWalletAddress,
+                    address: publicKey,
                     pending_amount: 0,
                     locked_amount: 0
                 }
@@ -51,7 +65,8 @@ router.post('/signin', (req, res) => __awaiter(void 0, void 0, void 0, function*
                 userId: user.id
             }, process.env.WORKER_JWT_SECRET || "");
             res.json({
-                token
+                token,
+                amount: 0
             });
         }
     }
@@ -156,8 +171,23 @@ router.post('/payout', middleware_1.workerAuthMiddleware, (req, res) => __awaite
                 msg: "User not found"
             });
         }
+        const transaction = new web3_js_1.Transaction().add(web3_js_1.SystemProgram.transfer({
+            fromPubkey: new web3_js_1.PublicKey("Cs13zQteNujqB26PXfLAZVmfgvoFchMFRzaZ8UuvdYPs"),
+            toPubkey: new web3_js_1.PublicKey(worker.address),
+            lamports: 1000000000 * worker.pending_amount / TOTAL_DECIMAL,
+        }));
         const address = worker.address;
-        const txnId = "0x1231231312";
+        const keypair = web3_js_1.Keypair.fromSecretKey(bs58_1.default.decode(process.env.SOLANA_PRIVATE_KEY || ""));
+        let signature = "";
+        try {
+            signature = yield (0, web3_js_1.sendAndConfirmTransaction)(connection, transaction, [keypair]);
+        }
+        catch (e) {
+            return res.json({
+                message: "Transaction failed"
+            });
+        }
+        console.log(signature);
         yield prisma.$transaction((tx) => __awaiter(void 0, void 0, void 0, function* () {
             yield tx.worker.update({
                 where: {
@@ -177,7 +207,7 @@ router.post('/payout', middleware_1.workerAuthMiddleware, (req, res) => __awaite
                     user_id: userId,
                     amount: worker.pending_amount,
                     status: "Processing",
-                    signature: txnId
+                    signature: signature
                 }
             });
         }));

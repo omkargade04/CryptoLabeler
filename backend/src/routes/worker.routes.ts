@@ -5,20 +5,39 @@ import { config } from "dotenv";
 import { workerAuthMiddleware } from "../middleware";
 import { getNextTask } from "../db";
 import { createSubmissionInput } from "../types";
+import { Connection, Keypair, PublicKey, SystemProgram, Transaction, sendAndConfirmTransaction } from "@solana/web3.js";
+import bs58 from "bs58";
+import nacl from "tweetnacl";
+
+const connection = new Connection(process.env.RPC_URL ?? "");
 
 config();
 const router = Router();
 const prisma = new PrismaClient();
-
+const TOTAL_DECIMAL = 1000_000_000;
 const TOTAL_SUBMISSIONS = 100;
 
 
-router.post('/signin', async(req, res) => {
+router.post('/signin', async(req: any, res: any) => {
     try{
-        const hardcodedWalletAddress = "92ix902i3908x1u";
+        const { publicKey, signature } = req.body;
+        const message = new TextEncoder().encode("Sign into cryptolabeler as a worker");
+
+        const result = nacl.sign.detached.verify(
+            message,
+            new Uint8Array(signature.data),
+            new PublicKey(publicKey).toBytes(),
+        );
+
+        if (!result) {
+            return res.status(411).json({
+                message: "Incorrect signature"
+            })
+        }
+
         const existingUser = await prisma.worker.findFirst({
             where: {
-                address: hardcodedWalletAddress
+                address: publicKey
             }
         });
 
@@ -28,12 +47,13 @@ router.post('/signin', async(req, res) => {
             }, process.env.WORKER_JWT_SECRET || "")
 
             res.json({
-                token
+                token,
+                amount: existingUser.pending_amount / TOTAL_DECIMAL
             })
         } else {
             const user = await prisma.worker.create({
                 data: {
-                    address: hardcodedWalletAddress,
+                    address: publicKey,
                     pending_amount: 0,
                     locked_amount: 0
                 }
@@ -43,7 +63,8 @@ router.post('/signin', async(req, res) => {
             }, process.env.WORKER_JWT_SECRET || "")
 
             res.json({
-                token
+                token,
+                amount: 0
             })
         }
     } catch(err) {
@@ -155,8 +176,32 @@ router.post('/payout', workerAuthMiddleware, async(req: any, res: any) => {
             })
         }
 
+        const transaction = new Transaction().add(
+            SystemProgram.transfer({
+                fromPubkey: new PublicKey("Cs13zQteNujqB26PXfLAZVmfgvoFchMFRzaZ8UuvdYPs"),
+                toPubkey: new PublicKey(worker.address),
+                lamports: 1000_000_000 * worker.pending_amount / TOTAL_DECIMAL,
+            })
+        );
+
         const address = worker.address;
-        const txnId = "0x1231231312";
+        const keypair = Keypair.fromSecretKey(bs58.decode(process.env.SOLANA_PRIVATE_KEY || ""));
+
+        let signature = "";
+        try {
+            signature = await sendAndConfirmTransaction(
+                connection,
+                transaction,
+                [keypair],
+            );
+        
+         } catch(e) {
+            return res.json({
+                message: "Transaction failed"
+            })
+         }
+        
+        console.log(signature)
 
         await prisma.$transaction(async tx => {
             await tx.worker.update({
@@ -177,7 +222,7 @@ router.post('/payout', workerAuthMiddleware, async(req: any, res: any) => {
                     user_id: userId,
                     amount: worker.pending_amount,
                     status: "Processing",
-                    signature: txnId
+                    signature: signature
                 }
             })
         })
