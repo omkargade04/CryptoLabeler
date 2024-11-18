@@ -20,6 +20,9 @@ const dotenv_1 = require("dotenv");
 const middleware_1 = require("../middleware");
 const s3_presigned_post_1 = require("@aws-sdk/s3-presigned-post");
 const types_1 = require("../types");
+const axios_1 = __importDefault(require("axios"));
+const tweetnacl_1 = __importDefault(require("tweetnacl"));
+const web3_js_1 = require("@solana/web3.js");
 (0, dotenv_1.config)();
 const router = (0, express_1.Router)();
 const prisma = new client_1.PrismaClient();
@@ -33,11 +36,18 @@ const s3Client = new client_s3_1.S3Client({
 const DEFAULT_TITLE = "default title";
 const TOTAL_DECIMAL = 1000000000;
 router.post('/signin', (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const { publicKey, signature } = req.body;
+    const message = new TextEncoder().encode("Sign into cryptolabeler");
+    const result = tweetnacl_1.default.sign.detached.verify(message, new Uint8Array(signature.data), new web3_js_1.PublicKey(publicKey).toBytes());
+    if (!result) {
+        return res.status(411).json({
+            message: "Incorrect signature"
+        });
+    }
     try {
-        const hardcodedWalletAddress = "92ix902i3908x1u";
         const existingUser = yield prisma.user.findFirst({
             where: {
-                address: hardcodedWalletAddress
+                address: publicKey
             }
         });
         if (existingUser) {
@@ -51,7 +61,7 @@ router.post('/signin', (req, res) => __awaiter(void 0, void 0, void 0, function*
         else {
             const user = yield prisma.user.create({
                 data: {
-                    address: hardcodedWalletAddress,
+                    address: publicKey,
                 }
             });
             const token = jsonwebtoken_1.default.sign({
@@ -169,6 +179,37 @@ router.get('/task', middleware_1.authMiddleware, (req, res) => __awaiter(void 0,
     }
     catch (e) {
         console.log(e);
+    }
+}));
+router.get('/leetcode', (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    var _b, _c;
+    try {
+        const response = yield axios_1.default.post('https://leetcode.com/graphql', {
+            query: `
+                query problemsetQuestionList {
+                    problemsetQuestionList: questionList {
+                        title
+                        titleSlug
+                        difficulty
+                    }
+                }
+            `
+        }, {
+            headers: {
+                'Content-Type': 'application/json',
+                'Referer': 'https://leetcode.com'
+            }
+        });
+        res.json({ data: response.data });
+    }
+    catch (error) {
+        const errorResponse = {
+            status: ((_b = error.response) === null || _b === void 0 ? void 0 : _b.status) || 500,
+            message: error.message,
+            details: ((_c = error.response) === null || _c === void 0 ? void 0 : _c.data) || 'No additional details available'
+        };
+        console.error('LeetCode API Error:', errorResponse);
+        res.status(errorResponse.status).json(errorResponse);
     }
 }));
 module.exports = router;

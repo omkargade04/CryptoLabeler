@@ -23,7 +23,6 @@ const types_1 = require("../types");
 const router = (0, express_1.Router)();
 const prisma = new client_1.PrismaClient();
 const TOTAL_SUBMISSIONS = 100;
-const TOTAL_DECIMAL = 1000000000;
 router.post('/signin', (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const hardcodedWalletAddress = "92ix902i3908x1u";
@@ -138,6 +137,53 @@ router.get('/balance', middleware_1.workerAuthMiddleware, (req, res) => __awaite
         res.json({
             pendingAmount: worker === null || worker === void 0 ? void 0 : worker.pending_amount,
             lockedAmount: worker === null || worker === void 0 ? void 0 : worker.locked_amount
+        });
+    }
+    catch (e) {
+        console.log(e);
+    }
+}));
+router.post('/payout', middleware_1.workerAuthMiddleware, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const userId = req.userId;
+        const worker = yield prisma.worker.findFirst({
+            where: {
+                id: Number(userId)
+            }
+        });
+        if (!worker) {
+            return res.status(401).json({
+                msg: "User not found"
+            });
+        }
+        const address = worker.address;
+        const txnId = "0x1231231312";
+        yield prisma.$transaction((tx) => __awaiter(void 0, void 0, void 0, function* () {
+            yield tx.worker.update({
+                where: {
+                    id: Number(userId)
+                },
+                data: {
+                    pending_amount: {
+                        decrement: worker.pending_amount,
+                    },
+                    locked_amount: {
+                        increment: worker.pending_amount
+                    }
+                }
+            });
+            yield tx.payout.create({
+                data: {
+                    user_id: userId,
+                    amount: worker.pending_amount,
+                    status: "Processing",
+                    signature: txnId
+                }
+            });
+        }));
+        res.json({
+            msg: 'Processing payout',
+            amount: worker.pending_amount
         });
     }
     catch (e) {

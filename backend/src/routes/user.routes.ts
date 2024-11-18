@@ -7,6 +7,9 @@ import { config, parse } from "dotenv";
 import { authMiddleware } from "../middleware";
 import { createPresignedPost } from '@aws-sdk/s3-presigned-post'
 import { createTaskInput } from "../types";
+import axios from "axios";
+import nacl from 'tweetnacl'
+import { Connection, PublicKey, Transaction } from "@solana/web3.js";
 
 config();
 const router = Router();
@@ -21,12 +24,28 @@ const s3Client = new S3Client({
 const DEFAULT_TITLE = "default title";
 const TOTAL_DECIMAL = 1000_000_000;
 
-router.post('/signin', async(req, res) => {
+router.post('/signin', async(req: any, res: any) => {
+
+    const { publicKey, signature } = req.body;
+    const message = new TextEncoder().encode("Sign into cryptolabeler");
+
+    const result = nacl.sign.detached.verify(
+        message,
+        new Uint8Array(signature.data),
+        new PublicKey(publicKey).toBytes(),
+    );
+
+
+    if (!result) {
+        return res.status(411).json({
+            message: "Incorrect signature"
+        })
+    }
+
     try{
-        const hardcodedWalletAddress = "92ix902i3908x1u";
         const existingUser = await prisma.user.findFirst({
             where: {
-                address: hardcodedWalletAddress
+                address: publicKey
             }
         });
 
@@ -41,7 +60,7 @@ router.post('/signin', async(req, res) => {
         } else {
             const user = await prisma.user.create({
                 data: {
-                    address: hardcodedWalletAddress,
+                    address: publicKey,
                 }
             })
             const token = jwt.sign({
@@ -178,5 +197,36 @@ router.get('/task', authMiddleware, async(req: any, res:any) => {
         console.log(e)
     }
 })
+router.get('/leetcode', async (req, res) => {
+    try {
+        const response = await axios.post('https://leetcode.com/graphql', {
+            query: `
+                query problemsetQuestionList {
+                    problemsetQuestionList: questionList {
+                        title
+                        titleSlug
+                        difficulty
+                    }
+                }
+            `
+        }, {
+            headers: {
+                'Content-Type': 'application/json',
+                'Referer': 'https://leetcode.com'
+            }
+        });
+        
+        res.json({ data: response.data });
+    } catch (error: any) {
+        const errorResponse = {
+            status: error.response?.status || 500,
+            message: error.message,
+            details: error.response?.data || 'No additional details available'
+        };
+        
+        console.error('LeetCode API Error:', errorResponse);
+        res.status(errorResponse.status).json(errorResponse);
+    }
+});
 
 module.exports = router;
